@@ -1,11 +1,61 @@
 import streamlit as st
 import os
 from openai import OpenAI
+import json
+import datetime
 
-# 列出所有会话
-#@st.cache_data
+# 列出所有历史会话信息
 def list_sessions():
-    return {"a","b","c"}
+    sessions = []
+    for file in os.listdir("session"):
+        if file.endswith(".json"):
+            try:
+                with open(f"session/{file}", "r") as f:
+                    session = json.load(f)
+                    sessions.append(session)
+            except FileNotFoundError:
+                print(f"会话文件 {file} 不存在")
+            except json.JSONDecodeError:
+                print(f"会话文件 {file} 格式错误，跳过加载")
+            except Exception as e:
+                print(f"会话文件 {file} 读取错误：{e}")
+    return sessions
+
+# 加载历史会话信息
+def load_session(session_id):
+    # 如果文件不存在，返回 None
+    if not os.path.exists(f"session/{session_id}.json"):
+        return None
+    try:
+        with open(f"session/{session_id}.json", "r") as f:
+            session_data = json.load(f)
+            return session_data
+    except FileNotFoundError:
+        print(f"会话文件 {session_id} 不存在")
+        return None
+    except json.JSONDecodeError:
+        print(f"会话文件 {session_id} 格式错误，跳过加载")
+        return None
+    except Exception as e:
+        print(f"会话文件 {session_id} 读取错误：{e}")
+        return None
+
+
+# 保存当前会话信息
+def save_session(session_state):
+    # 检查会话目录是否存在
+    if not os.path.exists("session"):
+        os.makedirs("session")
+
+    session_data = {
+        "name": session_state.name,
+        "character": session_state.character,
+        "messages": session_state.messages,
+        "session_id": session_state.current_session_id,
+    }
+    # 保存当前会话信息
+    with open(f"session/{session_state.current_session_id}.json", "w") as f:
+        json.dump(session_data, f, ensure_ascii=False, indent=4)
 
 # 初始化 Ollama 客户端
 client = OpenAI(
@@ -21,8 +71,9 @@ st.set_page_config(page_title="Wuxia", layout="wide", initial_sidebar_state="exp
 print("---------重新加载页面---------")
 
 # 初始化会话状态信息
-if "session_id" not in st.session_state:
-    st.session_state.session_id = 1
+if "current_session_id" not in st.session_state or st.session_state.current_session_id == "":
+    # 系统时间作为会话id
+    st.session_state.current_session_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "name" not in st.session_state or st.session_state.name == "":
@@ -81,20 +132,49 @@ with st.sidebar:
     st.header("会话管理")
 
     if st.button("新建会话", use_container_width=True):
-        #保存当前会话信息，并新建会话
-        st.session_state.session_id += 1
+        #保存当前会话信息，包括角色姓名、角色性格、历史消息、会话id
+        save_session(st.session_state)
+
+        # 新建会话，清空历史消息
+        # 清空角色姓名、角色性格 不需要，输入框的数据不会清空
+        # st.session_state.name = ""
+        # st.session_state.character = ""
         st.session_state.messages = []
+        st.session_state.current_session_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        #save_session(st.session_state.current_session_id, session_data)
+        # 刷新页面，展示新会话
         st.rerun()
 
 
     st.text("历史会话")
-    sessions = list_sessions()
-    for session in sessions:
+    history_sessions = list_sessions()
+    for session in history_sessions:
         col_open, col_close = st.columns([5, 1], vertical_alignment="center")
         with col_open:
-            st.button(f"会话 {session}", key=f"open_{session}", use_container_width=True)
+           # 展示历史会话信息
+           if  st.button(f"会话 {session['session_id']}", key=f"open_{session['session_id']}", use_container_width=True):
+                # 保存当前会话信息
+                save_session(st.session_state)
+                # 加载历史会话信息
+                session_data = load_session(session['session_id'])
+                if session_data:
+                    # 更新当前会话状态信息
+                    st.session_state.name = session_data["name"]
+                    st.session_state.character = session_data["character"]
+                    st.session_state.current_session_id = session_data['session_id']
+                    st.session_state.messages = session_data["messages"]
+                    # 刷新页面，展示新会话
+                st.rerun()
+
+
         with col_close:
-            st.button("关闭", key=f"close_{session}")
+            if st.button("关闭", key=f"close_{session['session_id']}"):
+                st.session_state.name = ""
+                st.session_state.character = ""
+                st.session_state.messages = []
+                st.session_state.current_session_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                # 刷新页面，展示新会话
+                st.rerun()
 
     # 角色姓名输入框
     role_name = st.text_input("角色姓名")
